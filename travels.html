@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>My Live Journey</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+    .badge {
+      position: absolute; top: 10px; left: 10px;
+      background: #fff; padding: 6px 10px; border-radius: 8px;
+      font: 13px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      box-shadow: 0 2px 10px rgba(0,0,0,.15);
+    }
+    .badge small { color: #666; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="badge" id="info">Loading…</div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    // ---------- CONFIG ----------
+    const GEOJSON_URL = "https://YOUR-N8N/webhook/geojson?user=martin&minutes=120&token=READ_ONLY";
+    const POLL_MS = 10000; // 10s
+    // ----------------------------
+
+    const map = L.map('map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
+
+    const trail = L.polyline([], {weight: 4}).addTo(map);
+    const me = L.circleMarker([0,0], {radius: 7}).addTo(map);
+    const acc = L.circle([0,0], {radius: 0}).addTo(map);
+
+    const info = document.getElementById('info');
+    let firstFitDone = false;
+
+    function toLatLngs(coords) {
+      // GeoJSON is [lng, lat]; Leaflet expects [lat, lng]
+      return coords.map(([lng, lat]) => [lat, lng]);
+    }
+
+    function fmtTs(ts) {
+      if (!ts && ts !== 0) return '';
+      const n = Number(ts);
+      return isFinite(n) ? new Date(n).toLocaleString() : String(ts);
+    }
+
+    async function fetchFC() {
+      const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let data = await res.json();
+      return Array.isArray(data) ? data[0] : data;
+    }
+
+    function applyFC(fc) {
+      if (!fc || fc.type !== 'FeatureCollection') throw new Error('Not a FeatureCollection');
+
+      const features = Array.isArray(fc.features) ? fc.features : [];
+      const trailF = features.find(f => f?.properties?.kind === 'trail' && f.geometry?.type === 'LineString');
+      const youF   = features.find(f => f?.properties?.kind === 'you'   && f.geometry?.type === 'Point');
+
+      if (trailF?.geometry?.coordinates?.length >= 2) {
+        const latlngs = toLatLngs(trailF.geometry.coordinates);
+        trail.setLatLngs(latlngs);
+        if (!firstFitDone) { map.fitBounds(trail.getBounds(), {padding: [30, 30]}); firstFitDone = true; }
+      } else {
+        trail.setLatLngs([]);
+      }
+
+      if (youF?.geometry?.coordinates?.length === 2) {
+        const [lng, lat] = youF.geometry.coordinates;
+        me.setLatLng([lat, lng]);
+        const radius = Number(youF.properties?.accuracy) || 0;
+        acc.setLatLng([lat, lng]).setRadius(radius);
+
+        if (!firstFitDone) { map.setView([lat, lng], 15); firstFitDone = true; }
+
+        const spd = youF.properties?.speed;
+        const batt = youF.properties?.battery;
+        const ts = youF.properties?.ts;
+        info.innerHTML =
+          `<strong>Last fix:</strong> ${fmtTs(ts)}<br/>` +
+          (spd != null ? `<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>` : '') +
+          (batt != null ? `<small>Battery: ${batt}%</small>` : '');
+      } else {
+        info.textContent = 'No current position';
+      }
+    }
+
+    async function refresh() {
+      try {
+        const fc = await fetchFC();
+        applyFC(fc);
+      } catch (e) {
+        info.textContent = `Unable to load location (${e?.message || e})`;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, POLL_MS);
+  </script>
+</body>
+</html>
