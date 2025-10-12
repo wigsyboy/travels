@@ -13,6 +13,7 @@
       font: 13px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       box-shadow: 0 2px 10px rgba(0,0,0,.15); z-index: 500;
     }
+    .badge small { color: #666; }
   </style>
 </head>
 <body>
@@ -42,91 +43,104 @@
     const esriSat = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19, attribution: 'Tiles © Esri, Maxar, Earthstar Geographics'
-    });
+    );
 
     const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
       maxZoom: 17, attribution: '© OpenStreetMap, © SRTM | OpenTopoMap'
     });
 
+    // --- Initialize map ---
+    const map = L.map('map');
+    esriSat.addTo(map); // Default layer
+
+    // --- Overlays ---
+    const trail = L.polyline([], { weight: 4 });
+    const me    = L.circleMarker([0,0], { radius: 7 });
+    const acc   = L.circle([0,0], { radius: 0 });
+    const positionGroup = L.layerGroup([me, acc]);
+
+    // --- Build layer control ---
     const baseMaps = {
-      "Esri Satellite": esriSat,
-      "OpenStreetMap": osm,
-      "Carto Light": cartoLight,
-      "Carto Dark": cartoDark,
-      "OpenTopoMap": openTopo
+      'Esri Satellite': esriSat,
+      'OpenStreetMap': osm,
+      'Carto Light': cartoLight,
+      'Carto Dark': cartoDark,
+      'OpenTopoMap': openTopo
     };
-
-    // Map init with default basemap
-    const map = L.map('map', { layers: [esriSat] });
-
-    // Your data overlays
-    const trail = L.polyline([], { weight: 4 }).addTo(map);
-    const me = L.circleMarker([0,0], { radius: 7 }).addTo(map);
-    const acc = L.circle([0,0], { radius: 0 }).addTo(map);
-
-    // Build the control AFTER layers exist
     const overlays = {
-      "Trail": trail,
-      "Position": L.layerGroup([me, acc]) // grouped toggle
+      'Trail': trail,
+      'Position': positionGroup
     };
     L.control.layers(baseMaps, overlays, { collapsed: false, position: 'topright' }).addTo(map);
     L.control.scale({ position: 'bottomleft' }).addTo(map);
 
+    // --- Overlay persistence (Trail + Position) ---
+    const LS_KEY_TRAIL = 'overlay:trail';
+    const LS_KEY_POS   = 'overlay:position';
+    function setOverlay(overlay, on){
+      if(on && !map.hasLayer(overlay)) overlay.addTo(map);
+      if(!on && map.hasLayer(overlay)) map.removeLayer(overlay);
+    }
+    const trailOn = localStorage.getItem(LS_KEY_TRAIL);
+    const posOn   = localStorage.getItem(LS_KEY_POS);
+    setOverlay(trail, trailOn === null ? true : trailOn === '1');
+    setOverlay(positionGroup, posOn === null ? true : posOn === '1');
+    map.on('overlayadd',   e=>{
+      if(e.layer===trail) localStorage.setItem(LS_KEY_TRAIL,'1');
+      if(e.layer===positionGroup) localStorage.setItem(LS_KEY_POS,'1');
+    });
+    map.on('overlayremove',e=>{
+      if(e.layer===trail) localStorage.setItem(LS_KEY_TRAIL,'0');
+      if(e.layer===positionGroup) localStorage.setItem(LS_KEY_POS,'0');
+    });
+
+    // --- Data display ---
     const info = document.getElementById('info');
     let firstFitDone = false;
 
     function toLatLngs(coords){ return coords.map(([lng,lat]) => [lat,lng]); }
-    function fmtTs(ts){ const n=Number(ts); return isFinite(n) ? new Date(n).toLocaleString() : String(ts); }
+    function fmtTs(ts){ const n=Number(ts); return isFinite(n)?new Date(n).toLocaleString():String(ts); }
 
     async function fetchFC(){
       const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
       let data = await res.json();
-      return Array.isArray(data) ? data[0] : data;
+      return Array.isArray(data)?data[0]:data;
     }
 
     function applyFC(fc){
-      if (!fc || fc.type !== 'FeatureCollection') throw new Error('Not a FeatureCollection');
-      const features = Array.isArray(fc.features) ? fc.features : [];
-      const trailF = features.find(f => f?.properties?.kind === 'trail' && f.geometry?.type==='LineString');
-      const youF   = features.find(f => f?.properties?.kind === 'you'   && f.geometry?.type==='Point');
+      if(!fc || fc.type!=='FeatureCollection') throw new Error('Not a FeatureCollection');
+      const features = Array.isArray(fc.features)?fc.features:[];
+      const trailF = features.find(f=>f?.properties?.kind==='trail'&&f.geometry?.type==='LineString');
+      const youF   = features.find(f=>f?.properties?.kind==='you'  &&f.geometry?.type==='Point');
 
-      if (trailF?.geometry?.coordinates?.length >= 2){
+      if(trailF?.geometry?.coordinates?.length>=2){
         const latlngs = toLatLngs(trailF.geometry.coordinates);
         trail.setLatLngs(latlngs);
-        if (!firstFitDone){ map.fitBounds(trail.getBounds(), { padding:[30,30] }); firstFitDone = true; }
-      } else {
-        trail.setLatLngs([]);
-      }
+        if(!firstFitDone){ map.fitBounds(trail.getBounds(),{padding:[30,30]}); firstFitDone=true; }
+      } else trail.setLatLngs([]);
 
-      if (youF?.geometry?.coordinates?.length === 2){
-        const [lng, lat] = youF.geometry.coordinates;
+      if(youF?.geometry?.coordinates?.length===2){
+        const [lng,lat] = youF.geometry.coordinates;
         me.setLatLng([lat,lng]);
         acc.setLatLng([lat,lng]).setRadius(Number(youF.properties?.accuracy)||0);
-        if (!firstFitDone){ map.setView([lat,lng], 15); firstFitDone = true; }
+        if(!firstFitDone){ map.setView([lat,lng],15); firstFitDone=true; }
 
-        const spd = youF.properties?.speed;
-        const batt = youF.properties?.battery;
-        const ts = youF.properties?.ts;
+        const spd=youF.properties?.speed,batt=youF.properties?.battery,ts=youF.properties?.ts;
         info.innerHTML =
           `<strong>Last fix:</strong> ${fmtTs(ts)}<br/>` +
-          (spd!=null ? `<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>` : '') +
-          (batt!=null ? `<small>Battery: ${batt}%</small>` : '');
-      } else {
-        info.textContent = 'No current position';
-      }
+          (spd!=null?`<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>`:'') +
+          (batt!=null?`<small>Battery: ${batt}%</small>`:'');
+      } else info.textContent='No current position';
     }
 
     async function refresh(){
-      try { applyFC(await fetchFC()); }
-      catch(e){ info.textContent = `Unable to load location (${e?.message || e})`; }
+      try{ applyFC(await fetchFC()); }
+      catch(e){ info.textContent=`Unable to load location (${e?.message||e})`; }
     }
 
-    // Initial draw + 30-minute polling
     refresh();
     setInterval(refresh, POLL_MS);
   </script>
 </body>
 </html>
-
-
