@@ -57,7 +57,7 @@
     };
 
     // Map init with default basemap
-    const map = L.map('map', { layers: [cartoLight] });
+    const map = L.map('map', { layers: [esriSat] });
 
     // Your data overlays
     const trail = L.polyline([], { weight: 4 }).addTo(map);
@@ -128,4 +128,5 @@
   </script>
 </body>
 </html>
+
 
