@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>VanLife Spain</title>
+  <title>My Live Journey</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <style>
@@ -14,6 +14,37 @@
       box-shadow: 0 2px 10px rgba(0,0,0,.15); z-index: 500;
     }
     .badge small { color: #666; }
+
+    /* -------- Fancy markers -------- */
+    .pulse {
+      position: relative;
+      width: 16px; height: 16px;
+      background: #1976d2;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px #fff, 0 0 6px rgba(0,0,0,.35);
+    }
+    .pulse::after {
+      content: "";
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      box-shadow: 0 0 0 0 rgba(25,118,210,0.35);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(25,118,210,0.35); }
+      70%  { box-shadow: 0 0 0 16px rgba(25,118,210,0); }
+      100% { box-shadow: 0 0 0 0 rgba(25,118,210,0); }
+    }
+    .start-pin {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #2e7d32; border: 2px solid #fff;
+      box-shadow: 0 0 6px rgba(0,0,0,.35);
+    }
+    .fix-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #ff7043; border: 1px solid #fff;
+      box-shadow: 0 0 2px rgba(0,0,0,.35);
+    }
   </style>
 </head>
 <body>
@@ -27,39 +58,38 @@
     const POLL_MS = 30 * 60 * 1000; // 30 minutes
     // ------------------------
 
-    // Basemap layers
+    // ---- Basemaps ----
     const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '© OpenStreetMap contributors'
     });
-
     const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
       maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
     });
-
     const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
       maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
     });
-
     const esriSat = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19, attribution: 'Tiles © Esri, Maxar, Earthstar Geographics'
-    );
-
+    });
     const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
       maxZoom: 17, attribution: '© OpenStreetMap, © SRTM | OpenTopoMap'
     });
 
-    // --- Initialize map ---
+    // ---- Map ----
     const map = L.map('map');
-    esriSat.addTo(map); // Default layer
+    esriSat.addTo(map);
+    map.setView([38.34345, -0.48406], 14); // initial visible area
 
-    // --- Overlays ---
+    // ---- Overlays ----
     const trail = L.polyline([], { weight: 4 });
-    const me    = L.circleMarker([0,0], { radius: 7 });
-    const acc   = L.circle([0,0], { radius: 0 });
-    const positionGroup = L.layerGroup([me, acc]);
+    const pulseIcon = L.divIcon({ html: '<div class="pulse"></div>', iconSize: [16,16], iconAnchor: [8,8] });
+    const meMarker = L.marker([0,0], { icon: pulseIcon });
+    const acc = L.circle([0,0], { radius: 0 });
+    const startIcon = L.divIcon({ html: '<div class="start-pin"></div>', iconSize: [18,18], iconAnchor: [9,9] });
+    const startMarker = L.marker([0,0], { icon: startIcon });
+    const fixesGroup = L.layerGroup();
 
-    // --- Build layer control ---
     const baseMaps = {
       'Esri Satellite': esriSat,
       'OpenStreetMap': osm,
@@ -69,42 +99,28 @@
     };
     const overlays = {
       'Trail': trail,
-      'Position': positionGroup
+      'Position': L.layerGroup([meMarker, acc]),
+      'Start': startMarker,
+      'Fixes': fixesGroup
     };
     L.control.layers(baseMaps, overlays, { collapsed: false, position: 'topright' }).addTo(map);
     L.control.scale({ position: 'bottomleft' }).addTo(map);
 
-    // --- Overlay persistence (Trail + Position) ---
-    const LS_KEY_TRAIL = 'overlay:trail';
-    const LS_KEY_POS   = 'overlay:position';
-    function setOverlay(overlay, on){
-      if(on && !map.hasLayer(overlay)) overlay.addTo(map);
-      if(!on && map.hasLayer(overlay)) map.removeLayer(overlay);
-    }
-    const trailOn = localStorage.getItem(LS_KEY_TRAIL);
-    const posOn   = localStorage.getItem(LS_KEY_POS);
-    setOverlay(trail, trailOn === null ? true : trailOn === '1');
-    setOverlay(positionGroup, posOn === null ? true : posOn === '1');
-    map.on('overlayadd',   e=>{
-      if(e.layer===trail) localStorage.setItem(LS_KEY_TRAIL,'1');
-      if(e.layer===positionGroup) localStorage.setItem(LS_KEY_POS,'1');
-    });
-    map.on('overlayremove',e=>{
-      if(e.layer===trail) localStorage.setItem(LS_KEY_TRAIL,'0');
-      if(e.layer===positionGroup) localStorage.setItem(LS_KEY_POS,'0');
-    });
+    // Default visible layers
+    trail.addTo(map);
+    meMarker.addTo(map);
+    acc.addTo(map);
+    startMarker.addTo(map);
 
-    // --- Data display ---
     const info = document.getElementById('info');
     let firstFitDone = false;
-
-    function toLatLngs(coords){ return coords.map(([lng,lat]) => [lat,lng]); }
-    function fmtTs(ts){ const n=Number(ts); return isFinite(n)?new Date(n).toLocaleString():String(ts); }
+    const toLatLngs = coords => coords.map(([lng,lat]) => [lat,lng]);
+    const fmtTs = ts => { const n=Number(ts); return isFinite(n)?new Date(n).toLocaleString():String(ts); };
 
     async function fetchFC(){
       const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
       if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      let data = await res.json();
+      const data = await res.json();
       return Array.isArray(data)?data[0]:data;
     }
 
@@ -114,19 +130,41 @@
       const trailF = features.find(f=>f?.properties?.kind==='trail'&&f.geometry?.type==='LineString');
       const youF   = features.find(f=>f?.properties?.kind==='you'  &&f.geometry?.type==='Point');
 
+      // Trail and start marker
       if(trailF?.geometry?.coordinates?.length>=2){
         const latlngs = toLatLngs(trailF.geometry.coordinates);
         trail.setLatLngs(latlngs);
+        const [startLng,startLat] = trailF.geometry.coordinates[0];
+        startMarker.setLatLng([startLat,startLng]);
+        fixesGroup.clearLayers();
+        trailF.geometry.coordinates.forEach(([lng,lat])=>{
+          const icon = L.divIcon({ html:'<div class="fix-dot"></div>', iconSize:[8,8], iconAnchor:[4,4] });
+          fixesGroup.addLayer(L.marker([lat,lng],{icon}));
+        });
         if(!firstFitDone){ map.fitBounds(trail.getBounds(),{padding:[30,30]}); firstFitDone=true; }
-      } else trail.setLatLngs([]);
+      } else {
+        trail.setLatLngs([]);
+        fixesGroup.clearLayers();
+      }
 
+      // Current position
       if(youF?.geometry?.coordinates?.length===2){
-        const [lng,lat] = youF.geometry.coordinates;
-        me.setLatLng([lat,lng]);
+        const [lng,lat]=youF.geometry.coordinates;
+        meMarker.setLatLng([lat,lng]);
         acc.setLatLng([lat,lng]).setRadius(Number(youF.properties?.accuracy)||0);
         if(!firstFitDone){ map.setView([lat,lng],15); firstFitDone=true; }
 
-        const spd=youF.properties?.speed,batt=youF.properties?.battery,ts=youF.properties?.ts;
+        const spd=youF.properties?.speed,batt=youF.properties?.battery,ts=youF.properties?.ts,gmaps=youF.properties?.gmaps;
+        const html =
+          `<div style="min-width:160px">
+            <div><strong>Current position</strong></div>
+            <div>Lat: ${lat.toFixed(6)}<br>Lng: ${lng.toFixed(6)}</div>
+            ${spd!=null?`<div>Speed: ${Number(spd).toFixed(1)} m/s</div>`:''}
+            ${batt!=null?`<div>Battery: ${batt}%</div>`:''}
+            ${ts?`<div>${fmtTs(ts)}</div>`:''}
+            ${gmaps?`<div style="margin-top:6px;"><a href="${gmaps}" target="_blank" rel="noopener">Open in Google Maps</a></div>`:''}
+           </div>`;
+        meMarker.bindPopup(html);
         info.innerHTML =
           `<strong>Last fix:</strong> ${fmtTs(ts)}<br/>` +
           (spd!=null?`<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>`:'') +
@@ -136,7 +174,10 @@
 
     async function refresh(){
       try{ applyFC(await fetchFC()); }
-      catch(e){ info.textContent=`Unable to load location (${e?.message||e})`; }
+      catch(e){
+        info.textContent = `Unable to load location (${e?.message || e})`;
+        if(!map._loaded) map.setView([0,0],2);
+      }
     }
 
     refresh();
@@ -144,4 +185,3 @@
   </script>
 </body>
 </html>
-
