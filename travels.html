@@ -4,148 +4,125 @@
   <meta charset="utf-8" />
   <title>My Live Journey</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Leaflet CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <style>
     html, body, #map { height: 100%; margin: 0; }
     .badge {
       position: absolute; top: 10px; left: 10px;
       background: #fff; padding: 6px 10px; border-radius: 8px;
       font: 13px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      box-shadow: 0 2px 10px rgba(0,0,0,.15);
+      box-shadow: 0 2px 10px rgba(0,0,0,.15); z-index: 500;
     }
-    .badge small { color: #666; }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div class="badge" id="info">Loading…</div>
 
-  <!-- Leaflet JS -->
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
-    // ---------- CONFIG ----------
+    // -------- CONFIG --------
     const GEOJSON_URL = "https://n8n.loopandlearnjazz.com/webhook/geojson";
     const POLL_MS = 30 * 60 * 1000; // 30 minutes
-    // ----------------------------
+    // ------------------------
 
-    // Basemap layers (pick your default below)
-    const osm = L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      { maxZoom: 19, attribution: '© OpenStreetMap contributors' }
-    );
+    // Basemap layers
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© OpenStreetMap contributors'
+    });
 
-    const cartoLight = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-      { maxZoom: 20, attribution: '© OpenStreetMap contributors, © CARTO' }
-    );
+    const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+      maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
+    });
 
-    const cartoDark = L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      { maxZoom: 20, attribution: '© OpenStreetMap contributors, © CARTO' }
-    );
+    const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+      maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
+    });
 
     const esriSat = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { maxZoom: 19, attribution: 'Tiles © Esri' }
-    );
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Tiles © Esri, Maxar, Earthstar Geographics'
+    });
+
+    const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      maxZoom: 17, attribution: '© OpenStreetMap, © SRTM | OpenTopoMap'
+    });
 
     const baseMaps = {
       "OpenStreetMap": osm,
       "Carto Light": cartoLight,
       "Carto Dark": cartoDark,
-      "Esri Satellite": esriSat
+      "Esri Satellite": esriSat,
+      "OpenTopoMap": openTopo
     };
 
-    const map = L.map('map', {
-      layers: [cartoLight] // <-- default layer on load (change to osm/esriSat/cartoDark if you prefer)
-    });
+    // Map init with default basemap
+    const map = L.map('map', { layers: [cartoLight] });
 
-    // Basemap switcher UI
-    L.control.layers(baseMaps, {}, { collapsed: true, position: 'topright' }).addTo(map);
+    // Your data overlays
+    const trail = L.polyline([], { weight: 4 }).addTo(map);
+    const me = L.circleMarker([0,0], { radius: 7 }).addTo(map);
+    const acc = L.circle([0,0], { radius: 0 }).addTo(map);
 
-    // (Optional) scale bar
+    // Build the control AFTER layers exist
+    const overlays = {
+      "Trail": trail,
+      "Position": L.layerGroup([me, acc]) // grouped toggle
+    };
+    L.control.layers(baseMaps, overlays, { collapsed: false, position: 'topright' }).addTo(map);
     L.control.scale({ position: 'bottomleft' }).addTo(map);
-
-    // Overlays
-    const trail = L.polyline([], {weight: 4}).addTo(map);
-    const me = L.circleMarker([0,0], {radius: 7}).addTo(map);
-    const acc = L.circle([0,0], {radius: 0}).addTo(map);
 
     const info = document.getElementById('info');
     let firstFitDone = false;
 
-    function toLatLngs(coords) {
-      return coords.map(([lng, lat]) => [lat, lng]); // GeoJSON -> Leaflet
-    }
+    function toLatLngs(coords){ return coords.map(([lng,lat]) => [lat,lng]); }
+    function fmtTs(ts){ const n=Number(ts); return isFinite(n) ? new Date(n).toLocaleString() : String(ts); }
 
-    function fmtTs(ts) {
-      if (!ts && ts !== 0) return '';
-      const n = Number(ts);
-      return isFinite(n) ? new Date(n).toLocaleString() : String(ts);
-    }
-
-    async function fetchFC() {
+    async function fetchFC(){
       const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       let data = await res.json();
       return Array.isArray(data) ? data[0] : data;
     }
 
-    function applyFC(fc) {
+    function applyFC(fc){
       if (!fc || fc.type !== 'FeatureCollection') throw new Error('Not a FeatureCollection');
-
       const features = Array.isArray(fc.features) ? fc.features : [];
-      const trailF = features.find(f => f?.properties?.kind === 'trail' && f.geometry?.type === 'LineString');
-      const youF   = features.find(f => f?.properties?.kind === 'you'   && f.geometry?.type === 'Point');
+      const trailF = features.find(f => f?.properties?.kind === 'trail' && f.geometry?.type==='LineString');
+      const youF   = features.find(f => f?.properties?.kind === 'you'   && f.geometry?.type==='Point');
 
-      if (trailF?.geometry?.coordinates?.length >= 2) {
+      if (trailF?.geometry?.coordinates?.length >= 2){
         const latlngs = toLatLngs(trailF.geometry.coordinates);
         trail.setLatLngs(latlngs);
-        if (!firstFitDone) { map.fitBounds(trail.getBounds(), {padding: [30, 30]}); firstFitDone = true; }
+        if (!firstFitDone){ map.fitBounds(trail.getBounds(), { padding:[30,30] }); firstFitDone = true; }
       } else {
         trail.setLatLngs([]);
       }
 
-      if (youF?.geometry?.coordinates?.length === 2) {
+      if (youF?.geometry?.coordinates?.length === 2){
         const [lng, lat] = youF.geometry.coordinates;
-        me.setLatLng([lat, lng]);
-        const radius = Number(youF.properties?.accuracy) || 0;
-        acc.setLatLng([lat, lng]).setRadius(radius);
-
-        if (!firstFitDone) { map.setView([lat, lng], 15); firstFitDone = true; }
+        me.setLatLng([lat,lng]);
+        acc.setLatLng([lat,lng]).setRadius(Number(youF.properties?.accuracy)||0);
+        if (!firstFitDone){ map.setView([lat,lng], 15); firstFitDone = true; }
 
         const spd = youF.properties?.speed;
         const batt = youF.properties?.battery;
         const ts = youF.properties?.ts;
         info.innerHTML =
           `<strong>Last fix:</strong> ${fmtTs(ts)}<br/>` +
-          (spd != null ? `<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>` : '') +
-          (batt != null ? `<small>Battery: ${batt}%</small>` : '');
+          (spd!=null ? `<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>` : '') +
+          (batt!=null ? `<small>Battery: ${batt}%</small>` : '');
       } else {
         info.textContent = 'No current position';
       }
     }
 
-    async function refresh() {
-      try {
-        const fc = await fetchFC();
-        applyFC(fc);
-      } catch (e) {
-        info.textContent = `Unable to load location (${e?.message || e})`;
-      }
+    async function refresh(){
+      try { applyFC(await fetchFC()); }
+      catch(e){ info.textContent = `Unable to load location (${e?.message || e})`; }
     }
 
-    // First draw + 30-minute polling
+    // Initial draw + 30-minute polling
     refresh();
     setInterval(refresh, POLL_MS);
   </script>
