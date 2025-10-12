@@ -35,12 +35,48 @@
   <script>
     // ---------- CONFIG ----------
     const GEOJSON_URL = "https://n8n.loopandlearnjazz.com/webhook/geojson";
-    const POLL_MS = 10000; // 10s
+    const POLL_MS = 30 * 60 * 1000; // 30 minutes
     // ----------------------------
 
-    const map = L.map('map');
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19}).addTo(map);
+    // Basemap layers (pick your default below)
+    const osm = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom: 19, attribution: '© OpenStreetMap contributors' }
+    );
 
+    const cartoLight = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      { maxZoom: 20, attribution: '© OpenStreetMap contributors, © CARTO' }
+    );
+
+    const cartoDark = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      { maxZoom: 20, attribution: '© OpenStreetMap contributors, © CARTO' }
+    );
+
+    const esriSat = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19, attribution: 'Tiles © Esri' }
+    );
+
+    const baseMaps = {
+      "OpenStreetMap": osm,
+      "Carto Light": cartoLight,
+      "Carto Dark": cartoDark,
+      "Esri Satellite": esriSat
+    };
+
+    const map = L.map('map', {
+      layers: [cartoLight] // <-- default layer on load (change to osm/esriSat/cartoDark if you prefer)
+    });
+
+    // Basemap switcher UI
+    L.control.layers(baseMaps, {}, { collapsed: true, position: 'topright' }).addTo(map);
+
+    // (Optional) scale bar
+    L.control.scale({ position: 'bottomleft' }).addTo(map);
+
+    // Overlays
     const trail = L.polyline([], {weight: 4}).addTo(map);
     const me = L.circleMarker([0,0], {radius: 7}).addTo(map);
     const acc = L.circle([0,0], {radius: 0}).addTo(map);
@@ -49,8 +85,7 @@
     let firstFitDone = false;
 
     function toLatLngs(coords) {
-      // GeoJSON is [lng, lat]; Leaflet expects [lat, lng]
-      return coords.map(([lng, lat]) => [lat, lng]);
+      return coords.map(([lng, lat]) => [lat, lng]); // GeoJSON -> Leaflet
     }
 
     function fmtTs(ts) {
@@ -110,9 +145,9 @@
       }
     }
 
+    // First draw + 30-minute polling
     refresh();
     setInterval(refresh, POLL_MS);
   </script>
 </body>
 </html>
-
