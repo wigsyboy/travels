@@ -161,7 +161,7 @@
         const spd  = f.properties?.speed;
         const accM = f.properties?.accuracy;
         const link = f.properties?.gmaps;
-
+        const batt = f.properties?.battery;
         const m = L.marker([lat, lng], { icon: gmapsIcon });
         const html =
           `<div style="min-width:160px">
@@ -170,6 +170,7 @@
              ${ts ? `<div>${fmtTs(ts)}</div>` : ``}
              ${spd!=null ? `<div>Speed: ${Number(spd).toFixed(1)} m/s</div>` : ``}
              ${accM!=null ? `<div>Accuracy: ${accM} m</div>` : ``}
+             ${batt!=null ? `<div>Battery: ${batt}%</div>` : ``}
              ${link ? `<div style="margin-top:6px;"><a href="${link}" target="_blank" rel="noopener">Open in Google Maps</a></div>` : ``}
            </div>`;
         m.bindPopup(html);
@@ -217,3 +218,4 @@
   </script>
 </body>
 </html>
+
