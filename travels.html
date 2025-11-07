@@ -213,10 +213,10 @@ async function fetchFC(){
             ${gmaps?`<div style="margin-top:6px;"><a href="${gmaps}" target="_blank" rel="noopener">Open in Google Maps</a></div>`:''}
            </div>`;
         meMarker.bindPopup(html);
-        info.innerHTML =
-          `<strong>Last fix:</strong> ${fmtTs(ts)}<br/>` +
-          (spd!=null?`<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>`:'') +
-          (batt!=null?`<small>Battery: ${batt}%</small>`:'');
+        // info.innerHTML =
+        //   `<strong>Last fix:</strong> ${fmtTs(ts)}<br/>` +
+        //   (spd!=null?`<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>`:'') +
+        //   (batt!=null?`<small>Battery: ${batt}%</small>`:'');
       } else {
         info.textContent='No current position';
       }
@@ -235,6 +235,7 @@ async function fetchFC(){
   </script>
 </body>
 </html>
+
 
 
 
