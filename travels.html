@@ -46,17 +46,18 @@
     const params  = new URLSearchParams(window.location.search);
     const USER_ID = params.get('user');
     
-    // Optional: show a message / fallback if no user is provided
     if (!USER_ID) {
       console.warn('No ?user= param in URL');
     }
     
-    // Call your n8n webhook and pass user as a query param
-    const GEOJSON_URL = "https://api.plotmyjourney.com/webhook/geojson"
-      + (USER_ID ? `?user=${encodeURIComponent(USER_ID)}` : "");
+    // Build the S3 URL, e.g. https://s3.plotmyjourney.com/maps/40c5...json
+    const GEOJSON_URL = USER_ID
+      ? `https://s3.plotmyjourney.com/maps/${encodeURIComponent(USER_ID)}.json`
+      : null;
     
     const POLL_MS = 30 * 60 * 1000; // 30 minutes
     // ------------------------
+
     
     // Basemaps
     const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -137,12 +138,16 @@
     const toLatLngs = coords => coords.map(([lng,lat]) => [lat,lng]);
     const fmtTs = ts => { const n=Number(ts); return isFinite(n)?new Date(n).toLocaleString():String(ts); };
 
-    async function fetchFC(){
-      const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
-      if(!res.ok) throw new Error(`HTTP ${res.status}`);
-      let data = await res.json();
-      return Array.isArray(data) ? data[0] : data;
-    }
+async function fetchFC(){
+  if (!GEOJSON_URL) {
+    throw new Error('No user ID provided in URL (?user=...)');
+  }
+  const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  let data = await res.json();
+  return Array.isArray(data) ? data[0] : data;
+}
+
 
     function applyFC(fc){
       if(!fc || fc.type!=='FeatureCollection') throw new Error('Not a FeatureCollection');
@@ -230,5 +235,6 @@
   </script>
 </body>
 </html>
+
 
 
