@@ -79,7 +79,7 @@
 
     // Map init (Satellite by default + initial view so map always appears)
     const map = L.map('map');
-    esriSat.addTo(map);
+    osm.addTo(map);
     map.setView([38.34345, -0.48406], 14);
 
     // --- Overlays ---
@@ -235,6 +235,7 @@ async function fetchFC(){
   </script>
 </body>
 </html>
+
 
 
 
