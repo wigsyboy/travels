@@ -42,10 +42,22 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script>
     // -------- CONFIG --------
-    const GEOJSON_URL = "https://n8n.loopandlearnjazz.com/webhook/geojson";
+    // Read ?user=... from the page URL
+    const params  = new URLSearchParams(window.location.search);
+    const USER_ID = params.get('user');
+    
+    // Optional: show a message / fallback if no user is provided
+    if (!USER_ID) {
+      console.warn('No ?user= param in URL');
+    }
+    
+    // Call your n8n webhook and pass user as a query param
+    const GEOJSON_URL = "https://api.plotmyjourney.com/webhook/geojson"
+      + (USER_ID ? `?user=${encodeURIComponent(USER_ID)}` : "");
+    
     const POLL_MS = 30 * 60 * 1000; // 30 minutes
     // ------------------------
-
+    
     // Basemaps
     const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '© OpenStreetMap contributors'
@@ -218,4 +230,5 @@
   </script>
 </body>
 </html>
+
 
