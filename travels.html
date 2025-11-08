@@ -38,203 +38,220 @@
 <body>
   <div id="map"></div>
   <!-- <div class="badge" id="info">Loading…</div> -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+  // -------- CONFIG --------
+  // Read ?user=... from the page URL
+  const params  = new URLSearchParams(window.location.search);
+  const USER_ID = params.get('user');
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script>
-    // -------- CONFIG --------
-    // Read ?user=... from the page URL
-    const params  = new URLSearchParams(window.location.search);
-    const USER_ID = params.get('user');
-    
-    if (!USER_ID) {
-      console.warn('No ?user= param in URL');
-    }
-    
-    // Build the S3 URL, e.g. https://s3.plotmyjourney.com/maps/40c5...json
-    const GEOJSON_URL = USER_ID
-      ? `https://s3.plotmyjourney.com/maps/${encodeURIComponent(USER_ID)}.json`
-      : null;
-    
-    const POLL_MS = 30 * 60 * 1000; // 30 minutes
-    // ------------------------
-
-    
-    // Basemaps
-    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '© OpenStreetMap contributors'
-    });
-    const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-      maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
-    });
-    const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
-      maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
-    });
-    const esriSat = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19, attribution: 'Tiles © Esri, Maxar, Earthstar Geographics'
-    });
-    const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-      maxZoom: 17, attribution: '© OpenStreetMap, © SRTM | OpenTopoMap'
-    });
-
-    // Map init (Satellite by default + initial view so map always appears)
-    const map = L.map('map');
-    osm.addTo(map);
-    map.setView([38.34345, -0.48406], 14);
-
-    // --- Overlays ---
-    const trail = L.polyline([], { weight: 4 });
-
-    // Current position: pulsing marker
-    const pulseIcon = L.divIcon({ html: '<div class="pulse"></div>', iconSize: [16,16], iconAnchor: [8,8], popupAnchor: [0,-12] });
-    const meMarker = L.marker([0,0], { icon: pulseIcon });
-
-    // Accuracy circle
-    const acc = L.circle([0,0], { radius: 0 });
-
-    // Start marker
-    const startIcon = L.divIcon({ html: '<div class="start-pin"></div>', iconSize: [18,18], iconAnchor: [9,9], popupAnchor: [0,-9] });
-    const startMarker = L.marker([0,0], { icon: startIcon });
-
-    // Waypoint icons (Google Maps-style pin via inline SVG)
-    const gmapsIcon = L.divIcon({
-      html: `
-        <svg width="22" height="22" viewBox="0 0 24 24" style="display:block">
-          <path d="M12 2C8.687 2 6 4.686 6 8c0 4.418 6 12 6 12s6-7.582 6-12c0-3.314-2.686-6-6-6z" fill="#1976d2"/>
-          <circle cx="12" cy="8.5" r="3.2" fill="#fff"/>
-        </svg>`,
-      className: "", iconSize: [22,22], iconAnchor: [11,22], popupAnchor: [0,-20]
-    });
-    const fixesGroup = L.layerGroup(); // all per-fix waypoint markers
-
-    // Layer control (basemaps + overlays)
-    const baseMaps = {
-      'Esri Satellite': esriSat,
-      'OpenStreetMap': osm,
-      'Carto Light': cartoLight,
-      'Carto Dark': cartoDark,
-      'OpenTopoMap': openTopo
-    };
-    const overlays = {
-      'Trail': trail,
-      'Position': L.layerGroup([meMarker, acc]),
-      'Start': startMarker,
-      'Fixes': fixesGroup
-    };
-    L.control.layers(baseMaps, overlays, { collapsed: false, position: 'topright' }).addTo(map);
-    L.control.scale({ position: 'bottomleft' }).addTo(map);
-
-    // Default overlays ON
-    trail.addTo(map);
-    meMarker.addTo(map);
-    acc.addTo(map);
-    startMarker.addTo(map);
-    // Uncomment to show all fix markers by default:
-    // fixesGroup.addTo(map);
-
-    const info = document.getElementById('info');
-    let firstFitDone = false;
-
-    const toLatLngs = coords => coords.map(([lng,lat]) => [lat,lng]);
-    const fmtTs = ts => { const n=Number(ts); return isFinite(n)?new Date(n).toLocaleString():String(ts); };
-
-async function fetchFC(){
-  if (!GEOJSON_URL) {
-    throw new Error('No user ID provided in URL (?user=...)');
+  if (!USER_ID) {
+    console.warn('No ?user= param in URL');
   }
-  const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
-  if(!res.ok) throw new Error(`HTTP ${res.status}`);
-  let data = await res.json();
-  return Array.isArray(data) ? data[0] : data;
-}
 
+  // Build the S3 URL, e.g. https://s3.plotmyjourney.com/maps/40c5...json
+  const GEOJSON_URL = USER_ID
+    ? `https://s3.plotmyjourney.com/maps/${encodeURIComponent(USER_ID)}.json`
+    : null;
 
-    function applyFC(fc){
-      if(!fc || fc.type!=='FeatureCollection') throw new Error('Not a FeatureCollection');
-      const features = Array.isArray(fc.features)?fc.features:[];
-      const trailF = features.find(f=>f?.properties?.kind==='trail'&&f.geometry?.type==='LineString');
-      const youF   = features.find(f=>f?.properties?.kind==='you'  &&f.geometry?.type==='Point');
+  const POLL_MS = 30 * 60 * 1000; // 30 minutes
+  // ------------------------
 
-      // Trail + start marker
-      if(trailF?.geometry?.coordinates?.length>=2){
-        const latlngs = toLatLngs(trailF.geometry.coordinates);
-        trail.setLatLngs(latlngs);
-        const [sLng,sLat] = trailF.geometry.coordinates[0];
-        startMarker.setLatLng([sLat,sLng]);
+  // Basemaps
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap contributors'
+  });
+  const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+    maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
+  });
+  const cartoDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+    maxZoom: 20, attribution: '© OpenStreetMap, © CARTO'
+  });
+  const esriSat = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'Tiles © Esri, Maxar, Earthstar Geographics'
+  });
+  const openTopo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    maxZoom: 17, attribution: '© OpenStreetMap, © SRTM | OpenTopoMap'
+  });
 
-        if(!firstFitDone){ map.fitBounds(trail.getBounds(),{padding:[30,30]}); firstFitDone=true; }
-      } else {
-        trail.setLatLngs([]);
+  // Map init (OpenStreetMap by default + initial view so map always appears)
+  const map = L.map('map');
+  osm.addTo(map);
+  map.setView([38.34345, -0.48406], 14);
+
+  // --- Overlays ---
+  const trail = L.polyline([], { weight: 4 });
+
+  // Current position: pulsing marker
+  const pulseIcon = L.divIcon({
+    html: '<div class="pulse"></div>',
+    iconSize: [16,16],
+    iconAnchor: [8,8],
+    popupAnchor: [0,-12]
+  });
+  const meMarker = L.marker([0,0], { icon: pulseIcon });
+
+  // Accuracy circle
+  const acc = L.circle([0,0], { radius: 0 });
+
+  // Group for position (marker + accuracy circle)
+  const positionGroup = L.layerGroup([meMarker, acc]);
+
+  // Start marker
+  const startIcon = L.divIcon({
+    html: '<div class="start-pin"></div>',
+    iconSize: [18,18],
+    iconAnchor: [9,9],
+    popupAnchor: [0,-9]
+  });
+  const startMarker = L.marker([0,0], { icon: startIcon });
+
+  // Waypoint icons (Google Maps-style pin via inline SVG)
+  const gmapsIcon = L.divIcon({
+    html: `
+      <svg width="22" height="22" viewBox="0 0 24 24" style="display:block">
+        <path d="M12 2C8.687 2 6 4.686 6 8c0 4.418 6 12 6 12s6-7.582 6-12c0-3.314-2.686-6-6-6z" fill="#1976d2"/>
+        <circle cx="12" cy="8.5" r="3.2" fill="#fff"/>
+      </svg>`,
+    className: "",
+    iconSize: [22,22],
+    iconAnchor: [11,22],
+    popupAnchor: [0,-20]
+  });
+  const fixesGroup = L.layerGroup(); // all per-fix waypoint markers
+
+  // Layer control (basemaps + overlays)
+  const baseMaps = {
+    'Esri Satellite': esriSat,
+    'OpenStreetMap': osm,
+    'Carto Light': cartoLight,
+    'Carto Dark': cartoDark,
+    'OpenTopoMap': openTopo
+  };
+  const overlays = {
+    'Trail': trail,
+    'Position': positionGroup,
+    'Start': startMarker,
+    'Fixes': fixesGroup
+  };
+  L.control.layers(baseMaps, overlays, { collapsed: false, position: 'topright' }).addTo(map);
+  L.control.scale({ position: 'bottomleft' }).addTo(map);
+
+  // Default overlays ON
+  trail.addTo(map);
+  positionGroup.addTo(map);  // Position (marker + circle)
+  startMarker.addTo(map);
+  fixesGroup.addTo(map);     // Fixes
+
+  let firstFitDone = false;
+
+  const toLatLngs = coords => coords.map(([lng,lat]) => [lat,lng]);
+  const fmtTs = ts => { const n = Number(ts); return isFinite(n) ? new Date(n).toLocaleString() : String(ts); };
+
+  async function fetchFC(){
+    if (!GEOJSON_URL) {
+      throw new Error('No user ID provided in URL (?user=...)');
+    }
+    const res = await fetch(GEOJSON_URL, { cache: 'no-store' });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    let data = await res.json();
+    return Array.isArray(data) ? data[0] : data;
+  }
+
+  function applyFC(fc){
+    if(!fc || fc.type!=='FeatureCollection') throw new Error('Not a FeatureCollection');
+    const features = Array.isArray(fc.features) ? fc.features : [];
+    const trailF = features.find(f => f?.properties?.kind === 'trail' && f.geometry?.type === 'LineString');
+    const youF   = features.find(f => f?.properties?.kind === 'you'   && f.geometry?.type === 'Point');
+
+    // Trail + start marker
+    if(trailF?.geometry?.coordinates?.length >= 2){
+      const latlngs = toLatLngs(trailF.geometry.coordinates);
+      trail.setLatLngs(latlngs);
+      const [sLng,sLat] = trailF.geometry.coordinates[0];
+      startMarker.setLatLng([sLat,sLng]);
+
+      if(!firstFitDone){
+        map.fitBounds(trail.getBounds(), { padding:[30,30] });
+        firstFitDone = true;
       }
-
-      // Waypoint markers (each fix with Google Maps link)
-      fixesGroup.clearLayers();
-      const fixFeatures = features.filter(f => f?.properties?.kind === 'fix' && f.geometry?.type === 'Point');
-      for (const f of fixFeatures) {
-        const [lng, lat] = f.geometry.coordinates || [];
-        if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
-
-        const ts   = f.properties?.ts;
-        const spd  = f.properties?.speed;
-        const accM = f.properties?.accuracy;
-        const link = f.properties?.gmaps;
-        const batt = f.properties?.battery;
-        const m = L.marker([lat, lng], { icon: gmapsIcon });
-        const html =
-          `<div style="min-width:160px">
-             <div><strong>Waypoint</strong></div>
-             <div>Lat: ${lat.toFixed(6)}<br>Lng: ${lng.toFixed(6)}</div>
-             ${ts ? `<div>${fmtTs(ts)}</div>` : ``}
-             ${spd!=null ? `<div>Speed: ${Number(spd).toFixed(1)} m/s</div>` : ``}
-             ${accM!=null ? `<div>Accuracy: ${accM} m</div>` : ``}
-             ${batt!=null ? `<div>Battery: ${batt}%</div>` : ``}
-             ${link ? `<div style="margin-top:6px;"><a href="${link}" target="_blank" rel="noopener">Open in Google Maps</a></div>` : ``}
-           </div>`;
-        m.bindPopup(html);
-        fixesGroup.addLayer(m);
-      }
-
-      // Current position (pulsing)
-      if(youF?.geometry?.coordinates?.length===2){
-        const [lng,lat]=youF.geometry.coordinates;
-        meMarker.setLatLng([lat,lng]);
-        acc.setLatLng([lat,lng]).setRadius(Number(youF.properties?.accuracy)||0);
-
-        if(!firstFitDone){ map.setView([lat,lng],15); firstFitDone=true; }
-
-        const spd=youF.properties?.speed,batt=youF.properties?.battery,ts=youF.properties?.ts,gmaps=youF.properties?.gmaps;
-        const html =
-          `<div style="min-width:160px">
-            <div><strong>Current position</strong></div>
-            <div>Lat: ${lat.toFixed(6)}<br>Lng: ${lng.toFixed(6)}</div>
-            ${spd!=null?`<div>Speed: ${Number(spd).toFixed(1)} m/s</div>`:''}
-            ${batt!=null?`<div>Battery: ${batt}%</div>`:''}
-            ${ts?`<div>${fmtTs(ts)}</div>`:''}
-            ${gmaps?`<div style="margin-top:6px;"><a href="${gmaps}" target="_blank" rel="noopener">Open in Google Maps</a></div>`:''}
-           </div>`;
-        meMarker.bindPopup(html);
-        // info.innerHTML =
-        //   `<strong>Last fix:</strong> ${fmtTs(ts)}<br/>` +
-        //   (spd!=null?`<small>Speed: ${Number(spd).toFixed(1)} m/s</small><br/>`:'') +
-        //   (batt!=null?`<small>Battery: ${batt}%</small>`:'');
-      } else {
-        info.textContent='No current position';
-      }
+    } else {
+      trail.setLatLngs([]);
     }
 
-    async function refresh(){
-      try { applyFC(await fetchFC()); }
-      catch(e){
-        info.textContent = `Unable to load location (${e?.message || e})`;
-        if(!map._loaded) map.setView([0,0], 2);
-      }
+    // Waypoint markers (each fix with Google Maps link)
+    fixesGroup.clearLayers();
+    const fixFeatures = features.filter(f => f?.properties?.kind === 'fix' && f.geometry?.type === 'Point');
+    for (const f of fixFeatures) {
+      const [lng, lat] = f.geometry.coordinates || [];
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+
+      const ts   = f.properties?.ts;
+      const spd  = f.properties?.speed;
+      const accM = f.properties?.accuracy;
+      const link = f.properties?.gmaps;
+      const batt = f.properties?.battery;
+      const m = L.marker([lat, lng], { icon: gmapsIcon });
+      const html =
+        `<div style="min-width:160px">
+           <div><strong>Waypoint</strong></div>
+           <div>Lat: ${lat.toFixed(6)}<br>Lng: ${lng.toFixed(6)}</div>
+           ${ts ? `<div>${fmtTs(ts)}</div>` : ``}
+           ${spd!=null ? `<div>Speed: ${Number(spd).toFixed(1)} m/s</div>` : ``}
+           ${accM!=null ? `<div>Accuracy: ${accM} m</div>` : ``}
+           ${batt!=null ? `<div>Battery: ${batt}%</div>` : ``}
+           ${link ? `<div style="margin-top:6px;"><a href="${link}" target="_blank" rel="noopener">Open in Google Maps</a></div>` : ``}
+         </div>`;
+      m.bindPopup(html);
+      fixesGroup.addLayer(m);
     }
 
-    refresh();
-    setInterval(refresh, POLL_MS);
-  </script>
+    // Current position (pulsing)
+    if(youF?.geometry?.coordinates?.length === 2){
+      const [lng,lat] = youF.geometry.coordinates;
+      meMarker.setLatLng([lat,lng]);
+      acc.setLatLng([lat,lng]).setRadius(Number(youF.properties?.accuracy) || 0);
+
+      if(!firstFitDone){
+        map.setView([lat,lng], 15);
+        firstFitDone = true;
+      }
+
+      const spd  = youF.properties?.speed;
+      const batt = youF.properties?.battery;
+      const ts   = youF.properties?.ts;
+      const gmaps = youF.properties?.gmaps;
+      const html =
+        `<div style="min-width:160px">
+          <div><strong>Current position</strong></div>
+          <div>Lat: ${lat.toFixed(6)}<br>Lng: ${lng.toFixed(6)}</div>
+          ${spd!=null ? `<div>Speed: ${Number(spd).toFixed(1)} m/s</div>` : ``}
+          ${batt!=null ? `<div>Battery: ${batt}%</div>` : ``}
+          ${ts ? `<div>${fmtTs(ts)}</div>` : ``}
+          ${gmaps ? `<div style="margin-top:6px;"><a href="${gmaps}" target="_blank" rel="noopener">Open in Google Maps</a></div>` : ``}
+         </div>`;
+      meMarker.bindPopup(html);
+    }
+  }
+
+  async function refresh(){
+    try {
+      applyFC(await fetchFC());
+    }
+    catch(e){
+      console.error('Unable to load location', e);
+      if(!map._loaded) map.setView([0,0], 2);
+    }
+  }
+
+  refresh();
+  setInterval(refresh, POLL_MS);
+</script>
+
 </body>
 </html>
+
 
 
 
